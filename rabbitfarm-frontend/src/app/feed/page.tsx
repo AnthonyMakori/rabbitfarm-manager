@@ -364,7 +364,7 @@ export default function FeedPage() {
       <div className="min-w-0 flex-1 lg:ml-64">
         <AppHeader />
 
-        <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+        <main className="mx-auto max-w-9xl space-y-6 p-4 sm:p-6 lg:p-8">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm text-stone-500">

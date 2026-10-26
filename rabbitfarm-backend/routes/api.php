@@ -12,6 +12,12 @@ use App\Http\Controllers\HousingUnitController;
 use App\Http\Controllers\HousingMovementController;
 use App\Http\Controllers\InventoryItemController;
 use App\Http\Controllers\InventoryMovementController;
+use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\SaleController;
+use App\Http\Controllers\Api\ExpenseController;
+use App\Http\Controllers\Api\ReportsController;
+use App\Http\Controllers\Api\FarmSettingController;
+use App\Http\Controllers\Api\DashboardController;
 
 /*
 |--------------------------------------------------------------------------
@@ -105,3 +111,29 @@ Route::post(
     'inventory-movements',
     [InventoryMovementController::class, 'store']
 );
+
+Route::apiResource('customers', CustomerController::class);
+
+// Sales: list, create, and view individual sales.
+Route::apiResource('sales', SaleController::class)
+    ->only(['index', 'store', 'show']);
+
+// Record a payment against a specific sale.
+Route::post('sales/{sale}/payments', [
+    SaleController::class,
+    'storePayment',
+]);
+
+Route::apiResource('expenses', ExpenseController::class);
+
+// Reports and analytics dashboard.
+Route::get('/reports/overview', [
+    ReportsController::class,
+    'overview',
+]);
+
+// Farm settings
+Route::get('/settings/farm', [FarmSettingController::class, 'show']);
+Route::put('/settings/farm', [FarmSettingController::class, 'update']);
+
+Route::get('/dashboard/overview', [DashboardController::class, 'overview']);

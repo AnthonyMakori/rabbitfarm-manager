@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   Leaf,
   Package,
+  Users,
 } from "lucide-react";
 
 const navigation = [
@@ -41,7 +42,8 @@ const navigation = [
   {
     title: "BUSINESS",
     items: [
-      { name: "Sales & Customers", href: "/sales", icon: ShoppingCart },
+      { name: "Customers", href: "/customers", icon: Users },
+      { name: "Sales", href: "/sales", icon: ShoppingCart },
       { name: "Expenses", href: "/expenses", icon: Wallet },
       { name: "Reports", href: "/reports", icon: ChartNoAxesCombined },
     ],
