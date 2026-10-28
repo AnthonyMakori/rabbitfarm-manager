@@ -14,6 +14,8 @@ class Rabbit extends Model
 
     protected $fillable = [
         'rabbit_code',
+        'kindling_id',          
+        'litter_kit_number',    
         'name',
         'breed',
         'sex',
@@ -78,5 +80,13 @@ public function housingUnit(): BelongsTo
 public function housingMovements(): HasMany
 {
     return $this->hasMany(HousingMovement::class);
+}
+
+/**
+ * The litter this rabbit was born in, if it was born on this farm.
+ */
+public function kindling(): BelongsTo
+{
+    return $this->belongsTo(Kindling::class);
 }
 }

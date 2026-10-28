@@ -8,6 +8,8 @@ use App\Models\Kindling;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use App\Models\Rabbit;
+use Illuminate\Support\Facades\DB;
 
 class KindlingController extends Controller
 {
@@ -60,6 +62,7 @@ class KindlingController extends Controller
         ]);
 
         $validated['stillborn'] ??= 0;
+        $validated['current_alive'] ??= $validated['born_alive'];
         $validated['weaned_count'] ??= 0;
 
         $this->validateLitterCounts($validated);
@@ -78,13 +81,20 @@ class KindlingController extends Controller
             ]);
         }
 
-        $kindling = Kindling::create($validated);
+      
+        $kindling = DB::transaction(function () use ($validated, $breeding) {
+            $kindling = Kindling::create($validated);
 
-        // Keep the related breeding record in sync with the actual birth.
-        $breeding->update([
-            'actual_kindling_date' => $kindling->kindling_date->toDateString(),
-            'status' => 'kindled',
-        ]);
+            $breeding->update([
+                'actual_kindling_date' => $kindling->kindling_date->toDateString(),
+                'status' => 'kindled',
+            ]);
+
+            // Create individual rabbit records for the live-born kits.
+            $this->syncLitterRabbits($kindling);
+
+            return $kindling;
+        });
 
         $kindling->load(['breeding.maleRabbit', 'breeding.femaleRabbit']);
 
@@ -163,14 +173,40 @@ class KindlingController extends Controller
             ]);
         }
 
-        $kindling->update($validated);
+       DB::transaction(function () use (
+    $kindling,
+    $validated,
+    $kindlingDate
+) {
+    $kindling->update($validated);
 
-        // Keep the breeding's actual birth date synchronized if changed.
-        if (array_key_exists('kindling_date', $validated)) {
-            $kindling->breeding->update([
-                'actual_kindling_date' => $kindlingDate,
-            ]);
-        }
+    // Keep the breeding's actual birth date synchronized if changed.
+    if (array_key_exists('kindling_date', $validated)) {
+        $kindling->breeding->update([
+            'actual_kindling_date' => $kindlingDate,
+        ]);
+    }
+
+    /*
+     * Synchronize an already-linked litter.
+     *
+     * Historical litter records are deliberately skipped if they
+     * have no linked kits. We will reconcile those separately after
+     * checking for any kits that were registered manually.
+     */
+    $hasLinkedKits = Rabbit::query()
+        ->where('kindling_id', $kindling->id)
+        ->exists();
+
+   if ($hasLinkedKits) {
+    $this->syncLitterRabbits($kindling->fresh());
+
+    // Once individual records exist, use them as the source of truth.
+    $this->refreshKindlingCounts($kindling->id);
+}
+});
+
+$kindling->refresh();
 
         $kindling->load(['breeding.maleRabbit', 'breeding.femaleRabbit']);
 
@@ -229,4 +265,104 @@ class KindlingController extends Controller
             ]);
         }
     }
+
+private function syncLitterRabbits(Kindling $kindling): void
+{
+    $kindling->loadMissing('breeding.femaleRabbit');
+
+    $bornAlive = (int) $kindling->born_alive;
+
+    // Reuse existing records so repeated synchronization cannot
+    // create duplicate rabbits for the same litter and kit number.
+    $existingRabbits = Rabbit::query()
+        ->where('kindling_id', $kindling->id)
+        ->get()
+        ->keyBy('litter_kit_number');
+
+    // Never silently delete or reassign existing individual records.
+    if ($existingRabbits->count() > $bornAlive) {
+        throw ValidationException::withMessages([
+            'born_alive' => [
+                'The live-born count is lower than the number of '
+                . 'individual kits already registered for this litter. '
+                . 'Review the litter records before changing this count.',
+            ],
+        ]);
+    }
+
+    $mother = $kindling->breeding?->femaleRabbit;
+
+    // Create only missing individual records.
+    for ($kitNumber = 1; $kitNumber <= $bornAlive; $kitNumber++) {
+        if ($existingRabbits->has($kitNumber)) {
+            continue;
+        }
+
+        $rabbit = Rabbit::create([
+            'kindling_id' => $kindling->id,
+            'litter_kit_number' => $kitNumber,
+            'name' => null,
+            'breed' => $mother?->breed ?? 'Unknown',
+            'sex' => 'unknown',
+            'date_of_birth' => $kindling->kindling_date->toDateString(),
+            'category' => 'kit',
+            'status' => 'active',
+            'acquisition_source' => 'born_on_farm',
+            'notes' => sprintf(
+                'Automatically registered from litter #%d, kit #%d. '
+                . 'Update sex and individual details when known.',
+                $kindling->id,
+                $kitNumber
+            ),
+        ]);
+
+        // Generate the same rabbit code format used by RabbitController.
+        $rabbit->rabbit_code = 'RBT-' . str_pad(
+            (string) $rabbit->id,
+            4,
+            '0',
+            STR_PAD_LEFT
+        );
+
+        $rabbit->save();
+
+        $existingRabbits->put($kitNumber, $rabbit);
+    }
+
+   
+}
+
+
+/**
+ * Recalculate litter counts from individual rabbit records.
+ *
+ * Sold and transferred rabbits are still considered alive for
+ * litter survival statistics. They do not count as active rabbits
+ * on the farm.
+ */
+private function refreshKindlingCounts(int $kindlingId): void
+{
+    $kits = Rabbit::query()
+        ->where('kindling_id', $kindlingId);
+
+    $livingStatuses = ['active', 'sold', 'transferred'];
+
+    $currentAlive = (clone $kits)
+        ->whereIn('status', $livingStatuses)
+        ->count();
+
+    $weanedCount = (clone $kits)
+        ->whereIn('status', $livingStatuses)
+        ->where('category', 'growing')
+        ->count();
+
+    Kindling::query()
+        ->whereKey($kindlingId)
+        ->update([
+            'current_alive' => $currentAlive,
+            'weaned_count' => $weanedCount,
+        ]);
+}
+
+
 }

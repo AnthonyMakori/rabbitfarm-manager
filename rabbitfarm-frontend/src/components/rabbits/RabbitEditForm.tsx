@@ -195,7 +195,7 @@ export default function RabbitEditForm({ rabbitId }: { rabbitId: number }) {
 
   if (!rabbit) {
     return (
-      <div className="mx-auto max-w-3xl rounded-2xl border border-red-200 bg-white p-6">
+      <div className="mx-auto max-w-1xl rounded-2xl border border-red-200 bg-white p-6">
         <p className="text-sm text-red-700">
           {error || "Rabbit record not found."}
         </p>

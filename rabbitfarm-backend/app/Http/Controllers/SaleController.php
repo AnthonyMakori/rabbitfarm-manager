@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\Rabbit;
 use App\Models\Sale;
 use App\Models\SalePayment;
+use App\Models\Kindling; // Added: update litter counts after selling rabbits.
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -75,7 +76,8 @@ class SaleController extends Controller
     }
 
     /**
-     * Record a sale and mark the selected rabbits as sold.
+     * Record a sale, mark the selected rabbits as sold,
+     * and refresh the counts for any linked kindlings.
      */
     public function store(Request $request): JsonResponse
     {
@@ -158,6 +160,9 @@ class SaleController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
 
+            // Track affected litters so each one is recalculated only once.
+            $affectedKindlingIds = [];
+
             foreach ($validated['items'] as $item) {
                 $rabbit = $rabbits[(int) $item['rabbit_id']];
                 $unitPrice = (int) round((float) $item['unit_price'] * 100);
@@ -168,11 +173,40 @@ class SaleController extends Controller
                     'line_total' => number_format($unitPrice / 100, 2, '.', ''),
                 ]);
 
-                // The rabbit is no longer available for another sale.
+                // Mark the rabbit as sold.
                 $rabbit->update([
                     'status' => 'sold',
                     'exit_date' => $saleDate,
                 ]);
+
+                // Remember the litter if this rabbit came from a recorded kindling.
+                if ($rabbit->kindling_id !== null) {
+                    $affectedKindlingIds[] = (int) $rabbit->kindling_id;
+                }
+            }
+
+            // Refresh aggregate counts for affected litters.
+            // Sold rabbits remain alive, but are no longer active farm residents.
+            foreach (array_unique($affectedKindlingIds) as $kindlingId) {
+                $livingStatuses = ['active', 'sold', 'transferred'];
+
+                $currentAlive = DB::table('rabbits')
+                    ->where('kindling_id', $kindlingId)
+                    ->whereIn('status', $livingStatuses)
+                    ->count();
+
+                $weanedCount = DB::table('rabbits')
+                    ->where('kindling_id', $kindlingId)
+                    ->whereIn('status', $livingStatuses)
+                    ->where('category', 'growing')
+                    ->count();
+
+                Kindling::query()
+                    ->whereKey($kindlingId)
+                    ->update([
+                        'current_alive' => $currentAlive,
+                        'weaned_count' => $weanedCount,
+                    ]);
             }
 
             return $sale;

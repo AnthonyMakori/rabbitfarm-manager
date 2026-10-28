@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, LoaderCircle, Rabbit } from "lucide-react";
 
@@ -38,6 +38,31 @@ export default function RabbitForm() {
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
+  // Calculate today's date after mounting to avoid prerendering errors.
+  const [today, setToday] = useState("");
+
+  useEffect(() => {
+    const now = new Date();
+
+    // Use the browser's local calendar date in YYYY-MM-DD format.
+    const localDate = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    setToday(localDate);
+  }, []);
+
+  // Release image preview resources when the preview changes or the component unmounts.
+  useEffect(() => {
+    if (!imagePreview) return;
+
+    return () => {
+      URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
   function updateField<K extends keyof typeof initialForm>(
     field: K,
     value: (typeof initialForm)[K],
@@ -48,6 +73,54 @@ export default function RabbitForm() {
     }));
   }
 
+  function handleImageChange(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0] ?? null;
+
+    setError("");
+
+    if (!file) {
+      setImage(null);
+      setImagePreview(null);
+      return;
+    }
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    if (!allowedTypes.includes(file.type)) {
+      setError("Please select a JPG, PNG, or WebP image.");
+      event.target.value = "";
+      setImage(null);
+      setImagePreview(null);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Please select an image smaller than 5 MB.");
+      event.target.value = "";
+      setImage(null);
+      setImagePreview(null);
+      return;
+    }
+
+    setImage(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  function removeImage() {
+    setImage(null);
+    setImagePreview(null);
+
+    const input = document.getElementById(
+      "rabbit-image",
+    ) as HTMLInputElement | null;
+
+    if (input) {
+      input.value = "";
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -56,6 +129,24 @@ export default function RabbitForm() {
 
     if (!form.breed.trim()) {
       setError("Please enter the rabbit's breed.");
+      return;
+    }
+
+    if (
+      form.date_of_birth &&
+      today &&
+      form.date_of_birth > today
+    ) {
+      setError("The date of birth cannot be in the future.");
+      return;
+    }
+
+    if (
+      form.acquired_at &&
+      today &&
+      form.acquired_at > today
+    ) {
+      setError("The acquisition date cannot be in the future.");
       return;
     }
 
@@ -85,8 +176,7 @@ export default function RabbitForm() {
 
       setSuccessCode(rabbit.rabbit_code ?? `Record #${rabbit.id}`);
       setForm(initialForm);
-      setImage(null);
-      setImagePreview(null);
+      removeImage();
     } catch (err) {
       setError(
         err instanceof Error
@@ -246,7 +336,7 @@ export default function RabbitForm() {
                   <input
                     id="date_of_birth"
                     type="date"
-                    max={new Date().toLocaleDateString("en-CA")}
+                    max={today || undefined}
                     value={form.date_of_birth}
                     onChange={(event) =>
                       updateField("date_of_birth", event.target.value)
@@ -343,7 +433,7 @@ export default function RabbitForm() {
                   <input
                     id="acquired_at"
                     type="date"
-                    max={new Date().toLocaleDateString("en-CA")}
+                    max={today || undefined}
                     value={form.acquired_at}
                     onChange={(event) =>
                       updateField("acquired_at", event.target.value)
@@ -384,87 +474,58 @@ export default function RabbitForm() {
 
             {/* Rabbit photograph */}
             <section className="border-t border-stone-100 pt-7">
-            <h3 className="font-bold text-stone-900">
+              <h3 className="font-bold text-stone-900">
                 Rabbit photograph
-            </h3>
+              </h3>
 
-            <p className="mt-1 text-sm text-stone-500">
+              <p className="mt-1 text-sm text-stone-500">
                 Upload a clear photograph to help identify this rabbit.
-            </p>
+              </p>
 
-            <div className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-start">
+              <div className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-start">
                 <div className="flex h-48 w-48 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-dashed border-stone-300 bg-stone-50">
-                {imagePreview ? (
+                  {imagePreview ? (
                     <img
-                    src={imagePreview}
-                    alt="Preview of the selected rabbit"
-                    className="h-full w-full object-cover"
+                      src={imagePreview}
+                      alt="Preview of the selected rabbit"
+                      className="h-full w-full object-cover"
                     />
-                ) : (
+                  ) : (
                     <div className="px-4 text-center text-sm text-stone-400">
-                    No photograph selected
+                      No photograph selected
                     </div>
-                )}
+                  )}
                 </div>
 
                 <div className="flex-1">
-                <label htmlFor="rabbit-image" className={labelClass}>
+                  <label htmlFor="rabbit-image" className={labelClass}>
                     Choose a photograph
-                </label>
+                  </label>
 
-                <input
+                  <input
                     id="rabbit-image"
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
+                    onChange={handleImageChange}
                     className={`${inputClass} file:mr-3 file:rounded-lg file:border-0 file:bg-green-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-green-800`}
-                    onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
+                  />
 
-                    if (!file) {
-                        setImage(null);
-                        setImagePreview(null);
-                        return;
-                    }
-
-                    if (file.size > 5 * 1024 * 1024) {
-                        setError("Please select an image smaller than 5 MB.");
-                        event.target.value = "";
-                        setImage(null);
-                        setImagePreview(null);
-                        return;
-                    }
-
-                    setError("");
-                    setImage(file);
-                    setImagePreview(URL.createObjectURL(file));
-                    }}
-                />
-
-                <p className="mt-2 text-xs leading-5 text-stone-500">
+                  <p className="mt-2 text-xs leading-5 text-stone-500">
                     JPG, PNG, or WebP. Maximum file size: 5 MB.
                     You can leave this empty if a photograph is unavailable.
-                </p>
+                  </p>
 
-                {image && (
+                  {image && (
                     <button
-                    type="button"
-                    className="mt-3 text-sm font-semibold text-red-600 hover:text-red-800"
-                    onClick={() => {
-                        setImage(null);
-                        setImagePreview(null);
-
-                        const input = document.getElementById(
-                        "rabbit-image",
-                        ) as HTMLInputElement | null;
-
-                        if (input) input.value = "";
-                    }}
+                      type="button"
+                      className="mt-3 text-sm font-semibold text-red-600 hover:text-red-800"
+                      onClick={removeImage}
                     >
-                    Remove selected photograph
+                      Remove selected photograph
                     </button>
-                )}
+                  )}
                 </div>
-            </div>
+              </div>
             </section>
 
             {/* Notes */}

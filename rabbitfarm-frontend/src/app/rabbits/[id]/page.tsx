@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+
 import {
   ArrowLeft,
   CalendarDays,
@@ -14,13 +15,22 @@ import {
 
 import AppSidebar from "@/components/layout/AppSidebar";
 import AppHeader from "@/components/layout/AppHeader";
-import { getRabbit, getRabbitImageUrl, type Rabbit } from "@/lib/api";
+
+import {
+  getRabbit,
+  getRabbitImageUrl,
+  type Rabbit,
+} from "@/lib/api";
+
 import RabbitHistory from "@/components/rabbits/RabbitHistory";
 
+/**
+ * Format a date without accidentally shifting a date-only value
+ * because of timezone conversion.
+ */
 function formatDate(value: string | null): string {
   if (!value) return "Not recorded";
 
-  // Avoid shifting a date-only value because of timezone conversion.
   const date = value.slice(0, 10);
   const [year, month, day] = date.split("-").map(Number);
 
@@ -31,6 +41,9 @@ function formatDate(value: string | null): string {
   });
 }
 
+/**
+ * Reusable component for displaying a rabbit detail.
+ */
 function Detail({
   label,
   value,
@@ -43,6 +56,7 @@ function Detail({
       <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
         {label}
       </p>
+
       <p className="mt-2 break-words font-semibold text-stone-900">
         {value}
       </p>
@@ -50,7 +64,13 @@ function Detail({
   );
 }
 
-export default function RabbitDetailsPage() {
+/**
+ * Rabbit profile content.
+ *
+ * This component uses useParams(), so it is rendered inside
+ * the Suspense boundary provided by RabbitDetailsPage below.
+ */
+function RabbitDetailsContent() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
 
@@ -58,15 +78,25 @@ export default function RabbitDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  /**
+   * Fetch the rabbit record whenever the route ID changes.
+   * The cancellation flag prevents state updates after unmounting.
+   */
   useEffect(() => {
     let cancelled = false;
 
     async function loadRabbit() {
+      // Validate the dynamic route parameter before calling the API.
       if (!Number.isInteger(id) || id < 1) {
         setError("Invalid rabbit ID.");
         setLoading(false);
         return;
       }
+
+      // Reset the page state before loading another rabbit.
+      setLoading(true);
+      setError("");
+      setRabbit(null);
 
       try {
         const result = await getRabbit(id);
@@ -101,14 +131,17 @@ export default function RabbitDetailsPage() {
   return (
     <div className="min-h-screen bg-[#f8f9f6] text-stone-900">
       <div className="flex min-h-screen">
+        {/* Sidebar */}
         <div className="hidden lg:block">
           <AppSidebar />
         </div>
 
+        {/* Main content */}
         <div className="min-w-0 flex-1">
           <AppHeader />
 
-          <main className="mx-auto max-w-[1400px] p-5 sm:p-8">
+          <main className="mx-auto max-w-[1000px] p-5 sm:p-8">
+            {/* Back navigation */}
             <Link
               href="/rabbits"
               className="mb-6 inline-flex items-center gap-2 text-sm text-stone-500 hover:text-green-700"
@@ -117,19 +150,34 @@ export default function RabbitDetailsPage() {
               Back to rabbit registry
             </Link>
 
+            {/* Loading state */}
             {loading ? (
-              <div className="rounded-2xl border border-stone-200 bg-white p-10 text-center text-stone-500">
+              <div
+                role="status"
+                className="rounded-2xl border border-stone-200 bg-white p-10 text-center text-stone-500"
+              >
                 Loading rabbit profile...
               </div>
             ) : error || !rabbit ? (
+              /* Error state */
               <div
                 role="alert"
                 className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700"
               >
                 {error || "Rabbit record not found."}
+
+                <div className="mt-4">
+                  <Link
+                    href="/rabbits"
+                    className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-semibold text-red-700 ring-1 ring-red-200 hover:bg-red-100"
+                  >
+                    Return to rabbit registry
+                  </Link>
+                </div>
               </div>
             ) : (
               <>
+                {/* Profile heading */}
                 <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <p className="text-sm font-medium text-green-700">
@@ -145,6 +193,7 @@ export default function RabbitDetailsPage() {
                     </p>
                   </div>
 
+                  {/* Edit rabbit */}
                   <Link
                     href={`/rabbits/${rabbit.id}/edit`}
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-700 px-4 py-3 text-sm font-semibold text-white hover:bg-green-800"
@@ -154,14 +203,17 @@ export default function RabbitDetailsPage() {
                   </Link>
                 </div>
 
+                {/* Rabbit profile layout */}
                 <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(280px,380px)_1fr]">
-                  {/* Photograph */}
+                  {/* Rabbit photograph */}
                   <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
                     <div className="flex aspect-[4/5] max-h-[520px] items-center justify-center bg-stone-100">
                       {imageUrl ? (
                         <img
                           src={imageUrl}
-                          alt={`Photograph of ${rabbit.name || rabbit.rabbit_code || "rabbit"}`}
+                          alt={`Photograph of ${
+                            rabbit.name || rabbit.rabbit_code || "rabbit"
+                          }`}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -170,9 +222,11 @@ export default function RabbitDetailsPage() {
                             size={42}
                             className="mx-auto text-stone-300"
                           />
+
                           <p className="mt-4 font-semibold text-stone-600">
                             No photograph yet
                           </p>
+
                           <p className="mt-2 text-sm text-stone-500">
                             Add a photo to make this rabbit easier to identify.
                           </p>
@@ -180,10 +234,12 @@ export default function RabbitDetailsPage() {
                       )}
                     </div>
 
+                    {/* Breed and classification */}
                     <div className="p-5">
                       <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
                         Breed
                       </p>
+
                       <p className="mt-1 text-lg font-bold text-stone-900">
                         {rabbit.breed}
                       </p>
@@ -200,11 +256,16 @@ export default function RabbitDetailsPage() {
                     </div>
                   </section>
 
-                  {/* Details */}
-                  <div className="space-y-6">
+                  {/* Rabbit details */}
+                  <div className="min-w-0 space-y-6">
+                    {/* General information */}
                     <section className="rounded-2xl border border-stone-200 bg-white p-5 sm:p-7">
                       <div className="mb-5 flex items-center gap-2">
-                        <HeartPulse size={20} className="text-green-700" />
+                        <HeartPulse
+                          size={20}
+                          className="text-green-700"
+                        />
+
                         <h2 className="text-lg font-bold">
                           Rabbit information
                         </h2>
@@ -213,7 +274,9 @@ export default function RabbitDetailsPage() {
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <Detail
                           label="Identification code"
-                          value={rabbit.rabbit_code ?? `Record #${rabbit.id}`}
+                          value={
+                            rabbit.rabbit_code ?? `Record #${rabbit.id}`
+                          }
                         />
 
                         <Detail
@@ -257,9 +320,14 @@ export default function RabbitDetailsPage() {
                       </div>
                     </section>
 
+                    {/* Acquisition information */}
                     <section className="rounded-2xl border border-stone-200 bg-white p-5 sm:p-7">
                       <div className="mb-5 flex items-center gap-2">
-                        <CalendarDays size={20} className="text-green-700" />
+                        <CalendarDays
+                          size={20}
+                          className="text-green-700"
+                        />
+
                         <h2 className="text-lg font-bold">
                           Acquisition information
                         </h2>
@@ -272,7 +340,8 @@ export default function RabbitDetailsPage() {
                             .split("_")
                             .map(
                               (part) =>
-                                part.charAt(0).toUpperCase() + part.slice(1),
+                                part.charAt(0).toUpperCase() +
+                                part.slice(1),
                             )
                             .join(" ")}
                         />
@@ -286,7 +355,9 @@ export default function RabbitDetailsPage() {
                           label="Acquisition cost"
                           value={
                             rabbit.acquisition_cost != null
-                              ? `KSh ${Number(rabbit.acquisition_cost).toLocaleString("en-KE", {
+                              ? `KSh ${Number(
+                                  rabbit.acquisition_cost,
+                                ).toLocaleString("en-KE", {
                                   minimumFractionDigits: 2,
                                   maximumFractionDigits: 2,
                                 })}`
@@ -301,16 +372,25 @@ export default function RabbitDetailsPage() {
                       </div>
                     </section>
 
+                    {/* Notes */}
                     <section className="rounded-2xl border border-stone-200 bg-white p-5 sm:p-7">
                       <div className="mb-4 flex items-center gap-2">
-                        <Weight size={20} className="text-green-700" />
-                        <h2 className="text-lg font-bold">Notes</h2>
+                        <Weight
+                          size={20}
+                          className="text-green-700"
+                        />
+
+                        <h2 className="text-lg font-bold">
+                          Notes
+                        </h2>
                       </div>
 
                       <p className="whitespace-pre-wrap text-sm leading-6 text-stone-600">
                         {rabbit.notes || "No additional notes recorded."}
                       </p>
                     </section>
+
+                    {/* Rabbit history */}
                     <div className="mt-8">
                       <RabbitHistory rabbitId={rabbit.id} />
                     </div>
@@ -322,5 +402,28 @@ export default function RabbitDetailsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Default route component.
+ *
+ * Wrapping RabbitDetailsContent in Suspense allows Next.js
+ * to handle the runtime-dependent useParams() hook.
+ */
+export default function RabbitDetailsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          role="status"
+          className="min-h-screen bg-[#f8f9f6] p-8 text-center text-stone-500"
+        >
+          Loading rabbit profile...
+        </div>
+      }
+    >
+      <RabbitDetailsContent />
+    </Suspense>
   );
 }

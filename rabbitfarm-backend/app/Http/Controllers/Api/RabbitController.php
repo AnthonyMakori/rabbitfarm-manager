@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Kindling;
 
 class RabbitController extends Controller
 {
@@ -68,7 +69,10 @@ class RabbitController extends Controller
         $validated = $request->validate([
             'name' => ['nullable', 'string', 'max:100'],
             'breed' => ['required', 'string', 'max:100'],
-            'sex' => ['required', Rule::in(['male', 'female'])],
+           'sex' => [
+            'required',
+            Rule::in(['male', 'female', 'unknown']),
+        ],
 
             'date_of_birth' => [
                 'nullable',
@@ -185,10 +189,10 @@ class RabbitController extends Controller
             'breed' => ['sometimes', 'required', 'string', 'max:100'],
 
             'sex' => [
-                'sometimes',
-                'required',
-                Rule::in(['male', 'female']),
-            ],
+            'sometimes',
+            'required',
+            Rule::in(['male', 'female', 'unknown']),
+        ],
 
             'date_of_birth' => [
                 'sometimes',
@@ -262,25 +266,62 @@ class RabbitController extends Controller
 
         $rabbit->update($validated);
 
+        // If this is a kit linked to a litter, keep the litter totals in sync.
+        if ($rabbit->kindling_id !== null) {
+            $this->refreshKindlingCounts((int) $rabbit->kindling_id);
+        }
         return response()->json([
             'message' => 'Rabbit updated successfully.',
             'data' => $rabbit->fresh(),
         ]);
     }
 
-    /**
-     * Delete a rabbit record.
-     *
-     * DELETE /api/rabbits/{rabbit}
-     *
-     * In production, this should be restricted to authorized users.
-     */
-    public function destroy(Rabbit $rabbit): JsonResponse
-    {
+   
+
+public function destroy(Rabbit $rabbit): JsonResponse
+{
+    // Save the litter ID before deleting the rabbit record.
+    $kindlingId = $rabbit->kindling_id;
+
+    DB::transaction(function () use ($rabbit, $kindlingId) {
         $rabbit->delete();
 
-        return response()->json([
-            'message' => 'Rabbit record deleted successfully.',
+        // Recalculate counts after deletion, if this rabbit belonged to a litter.
+        if ($kindlingId !== null) {
+            $this->refreshKindlingCounts((int) $kindlingId);
+        }
+    });
+
+    return response()->json([
+        'message' => 'Rabbit record deleted successfully.',
+    ]);
+}
+
+
+
+private function refreshKindlingCounts(int $kindlingId): void
+{
+    $kits = Rabbit::query()
+        ->where('kindling_id', $kindlingId);
+
+    // Keep this consistent with KindlingController and SaleController.
+    $livingStatuses = ['active', 'sold', 'transferred'];
+
+    $currentAlive = (clone $kits)
+        ->whereIn('status', $livingStatuses)
+        ->count();
+
+    $weanedCount = (clone $kits)
+        ->whereIn('status', $livingStatuses)
+        ->where('category', 'growing')
+        ->count();
+
+    Kindling::query()
+        ->whereKey($kindlingId)
+        ->update([
+            'current_alive' => $currentAlive,
+            'weaned_count' => $weanedCount,
         ]);
-    }
+}
+
 }

@@ -1,13 +1,19 @@
-
 "use client";
 
+import { Suspense } from "react";
 import { useParams } from "next/navigation";
 
 import AppSidebar from "@/components/layout/AppSidebar";
 import AppHeader from "@/components/layout/AppHeader";
 import RabbitEditForm from "@/components/rabbits/RabbitEditForm";
 
-export default function EditRabbitPage() {
+/**
+ * Contains the edit page UI.
+ *
+ * This component uses useParams(), so it must be rendered
+ * inside the Suspense boundary provided by EditRabbitPage.
+ */
+function EditRabbitContent() {
   const params = useParams<{ id: string }>();
   const rabbitId = Number(params.id);
 
@@ -23,5 +29,22 @@ export default function EditRabbitPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function EditRabbitPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          role="status"
+          className="min-h-screen bg-stone-50 p-8 text-center text-stone-500"
+        >
+          Loading rabbit edit page...
+        </div>
+      }
+    >
+      <EditRabbitContent />
+    </Suspense>
   );
 }
