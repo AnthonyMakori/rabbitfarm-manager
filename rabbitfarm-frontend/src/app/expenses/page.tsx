@@ -57,11 +57,14 @@ const PAYMENT_LABELS: Record<ExpensePaymentMethod, string> = {
   other: "Other",
 };
 
+// Keep module-level defaults deterministic during Next.js prerendering.
+// The current local date is assigned after the component mounts or when a
+// user opens/resets the create form.
 const EMPTY_FORM: ExpenseInput = {
   category: "feed",
   description: "",
   amount: 0,
-  expense_date: localDate(),
+  expense_date: "",
   paid_to: "",
   payment_method: "cash",
   reference: "",
@@ -108,10 +111,6 @@ function paymentLabel(method: string): string {
   return PAYMENT_LABELS[method as ExpensePaymentMethod] ?? method;
 }
 
-function monthStart(): string {
-  return `${localDate().slice(0, 7)}-01`;
-}
-
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,8 +127,20 @@ export default function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [form, setForm] = useState<ExpenseInput>({
     ...EMPTY_FORM,
-    expense_date: localDate(),
   });
+
+  // Avoid reading the current date during render/prerender in Next.js.
+  // This is populated in the browser after the component mounts.
+  const [currentMonth, setCurrentMonth] = useState("");
+
+  useEffect(() => {
+    const today = localDate();
+    setCurrentMonth(today.slice(0, 7));
+    setForm((previous) => ({
+      ...previous,
+      expense_date: previous.expense_date || today,
+    }));
+  }, []);
 
   const loadExpenses = useCallback(async () => {
     setLoading(true);
@@ -166,14 +177,13 @@ export default function ExpensesPage() {
   );
 
   const currentMonthTotal = useMemo(() => {
-    const start = monthStart();
-    const currentMonth = localDate().slice(0, 7);
+    if (!currentMonth) return 0;
 
     return expenses.reduce((sum, expense) => {
       if (expense.expense_date.slice(0, 7) !== currentMonth) return sum;
       return sum + Number(expense.amount || 0);
     }, 0);
-  }, [expenses]);
+  }, [expenses, currentMonth]);
 
   const categoryTotals = useMemo(() => {
     const totals: Record<string, number> = {};
