@@ -1,19 +1,19 @@
+
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
-  CheckCircle2,
+  ImagePlus,
   LoaderCircle,
   Save,
+  X,
 } from "lucide-react";
 
 import {
-  getRabbit,
-  getRabbitImageUrl,
-  updateRabbit,
-  type Rabbit,
+  createRabbit,
   type RabbitInput,
   type RabbitCategory,
   type RabbitSex,
@@ -21,711 +21,599 @@ import {
   type AcquisitionSource,
 } from "@/lib/api";
 
-const inputClass =
-  "mt-2 w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 outline-none transition focus:border-green-600 focus:ring-2 focus:ring-green-100";
-
-const labelClass = "text-sm font-semibold text-stone-700";
-
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-
-const ALLOWED_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
+const categories: { value: RabbitCategory; label: string }[] = [
+  { value: "breeding", label: "Breeding" },
+  { value: "growing", label: "Growing" },
+  { value: "kit", label: "Kit" },
 ];
 
-export default function RabbitEditForm({
-  rabbitId,
-}: {
-  rabbitId: number;
-}) {
-  const [rabbit, setRabbit] = useState<Rabbit | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+const sexes: { value: RabbitSex; label: string }[] = [
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+];
 
-  const [name, setName] = useState("");
-  const [breed, setBreed] = useState("");
-  const [sex, setSex] = useState<RabbitSex>("female");
-  const [dateOfBirth, setDateOfBirth] = useState("");
-  const [weightKg, setWeightKg] = useState("");
-  const [category, setCategory] =
-    useState<RabbitCategory>("growing");
-  const [status, setStatus] = useState<RabbitStatus>("active");
+const statuses: { value: RabbitStatus; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "sold", label: "Sold" },
+  { value: "deceased", label: "Deceased" },
+  { value: "culled", label: "Culled" },
+  { value: "transferred", label: "Transferred" },
+];
 
-  const [acquisitionSource, setAcquisitionSource] =
-    useState<AcquisitionSource>("born_on_farm");
+const acquisitionSources: {
+  value: AcquisitionSource;
+  label: string;
+}[] = [
+  { value: "born_on_farm", label: "Born on farm" },
+  { value: "purchased", label: "Purchased" },
+  { value: "transferred", label: "Transferred" },
+];
 
-  const [acquisitionCost, setAcquisitionCost] = useState("");
-  const [acquiredAt, setAcquiredAt] = useState("");
-  const [exitDate, setExitDate] = useState("");
-  const [notes, setNotes] = useState("");
+const inputClass =
+  "mt-2 w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 outline-none transition placeholder:text-stone-400 focus:border-green-600 focus:ring-2 focus:ring-green-100";
+
+const labelClass = "text-sm font-medium text-stone-700";
+
+export default function RabbitForm() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [form, setForm] = useState({
+    name: "",
+    breed: "",
+    sex: "female" as RabbitSex,
+    date_of_birth: "",
+    weight_kg: "",
+    category: "growing" as RabbitCategory,
+    status: "active" as RabbitStatus,
+    acquisition_source: "born_on_farm" as AcquisitionSource,
+    acquisition_cost: "",
+    acquired_at: "",
+    exit_date: "",
+    notes: "",
+  });
 
   const [image, setImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(
-    null,
-  );
+  const [imagePreview, setImagePreview] = useState("");
+  const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
-  // Load the existing rabbit and populate the form.
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadRabbit() {
-      try {
-        setLoading(true);
-        setError("");
-
-        const record = await getRabbit(rabbitId);
-
-        if (cancelled) return;
-
-        setRabbit(record);
-        setName(record.name ?? "");
-        setBreed(record.breed);
-        setSex(record.sex);
-        setDateOfBirth(record.date_of_birth ?? "");
-
-        setWeightKg(
-          record.weight_kg == null
-            ? ""
-            : String(record.weight_kg),
-        );
-
-        setCategory(record.category);
-        setStatus(record.status);
-        setAcquisitionSource(record.acquisition_source);
-
-        setAcquisitionCost(
-          record.acquisition_cost == null
-            ? ""
-            : String(record.acquisition_cost),
-        );
-
-        setAcquiredAt(record.acquired_at ?? "");
-        setExitDate(record.exit_date ?? "");
-        setNotes(record.notes ?? "");
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load this rabbit.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    if (Number.isInteger(rabbitId) && rabbitId > 0) {
-      void loadRabbit();
-    } else {
-      setError("Invalid rabbit ID.");
-      setLoading(false);
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [rabbitId]);
-
-  // Create and clean up temporary image preview URLs.
-  useEffect(() => {
-    if (!image) {
-      setImagePreview(null);
-      return;
-    }
-
-    const previewUrl = URL.createObjectURL(image);
-    setImagePreview(previewUrl);
-
-    return () => {
-      URL.revokeObjectURL(previewUrl);
-    };
-  }, [image]);
-
-  const existingImageUrl = rabbit
-    ? getRabbitImageUrl(rabbit)
-    : null;
-
-  const displayedImage = imagePreview ?? existingImageUrl;
-
-  function handleImageChange(file: File | null) {
-    setError("");
-    setSuccess(false);
-
-    if (!file) {
-      setImage(null);
-      return;
-    }
-
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      setError("Choose a JPG, PNG, or WebP image.");
-      return;
-    }
-
-    if (file.size > MAX_IMAGE_SIZE) {
-      setError("The photograph must be 5 MB or smaller.");
-      return;
-    }
-
-    // Keep the actual File object so updateRabbit can upload it.
-    setImage(file);
-  }
-
-  function cancelImageReplacement() {
-    setImage(null);
-
-    const input = document.getElementById(
-      "edit-image",
-    ) as HTMLInputElement | null;
-
-    if (input) {
-      input.value = "";
-    }
-
-    setError("");
-  }
-
-  async function handleSubmit(
-    event: FormEvent<HTMLFormElement>,
+  function updateField(
+    field: keyof typeof form,
+    value: string,
   ) {
-    event.preventDefault();
+    setForm((current) => ({ ...current, [field]: value }));
+
+    setFieldErrors((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image file.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("The image must be 5 MB or smaller.");
+      event.target.value = "";
+      return;
+    }
 
     setError("");
-    setSuccess(false);
+    setImage(file);
 
-    if (!breed.trim()) {
-      setError("Please enter the rabbit's breed.");
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  function removeImage() {
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+
+    setImage(null);
+    setImagePreview("");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setFieldErrors({});
+
+    if (!form.breed.trim()) {
+      setFieldErrors({ breed: "Breed is required." });
+      return;
+    }
+
+    if (form.weight_kg && Number(form.weight_kg) < 0) {
+      setFieldErrors({ weight_kg: "Weight cannot be negative." });
       return;
     }
 
     if (
-      weightKg.trim() !== "" &&
-      (!Number.isFinite(Number(weightKg)) ||
-        Number(weightKg) <= 0)
+      form.acquisition_cost &&
+      Number(form.acquisition_cost) < 0
     ) {
-      setError("Weight must be a number greater than zero.");
+      setFieldErrors({
+        acquisition_cost: "Cost cannot be negative.",
+      });
       return;
     }
 
     if (
-      acquisitionCost.trim() !== "" &&
-      (!Number.isFinite(Number(acquisitionCost)) ||
-        Number(acquisitionCost) < 0)
+      form.date_of_birth &&
+      form.acquired_at &&
+      form.acquired_at < form.date_of_birth
     ) {
-      setError("Acquisition cost cannot be negative.");
+      setFieldErrors({
+        acquired_at: "Acquisition date cannot be before the date of birth.",
+      });
       return;
     }
 
-    setSubmitting(true);
+    if (
+      form.exit_date &&
+      form.acquired_at &&
+      form.exit_date < form.acquired_at
+    ) {
+      setFieldErrors({
+        exit_date: "Exit date cannot be before the acquisition date.",
+      });
+      return;
+    }
+
+    setSaving(true);
 
     try {
-      const payload: Partial<RabbitInput> = {
-        name: name.trim() || null,
-        breed: breed.trim(),
-        sex,
-        date_of_birth: dateOfBirth || null,
-        weight_kg:
-          weightKg.trim() !== ""
-            ? Number(weightKg)
-            : null,
-        category,
-        status,
-        acquisition_source: acquisitionSource,
-        acquisition_cost:
-          acquisitionCost.trim() !== ""
-            ? Number(acquisitionCost)
-            : null,
-        acquired_at: acquiredAt || null,
-        exit_date: exitDate || null,
-        notes: notes.trim() || null,
-
-        // Send the actual File object, not the preview URL.
-        // If no replacement was selected, leave image null.
-        image: image ?? null,
+      const payload: RabbitInput = {
+        name: form.name.trim() || null,
+        breed: form.breed.trim(),
+        sex: form.sex,
+        date_of_birth: form.date_of_birth || null,
+        weight_kg: form.weight_kg
+          ? Number(form.weight_kg)
+          : null,
+        category: form.category,
+        status: form.status,
+        acquisition_source: form.acquisition_source,
+        acquisition_cost: form.acquisition_cost
+          ? Number(form.acquisition_cost)
+          : null,
+        acquired_at: form.acquired_at || null,
+        exit_date: form.exit_date || null,
+        notes: form.notes.trim() || null,
+        image,
       };
 
-      const updatedRabbit = await updateRabbit(
-        rabbitId,
-        payload,
-      );
+      const createdRabbit = await createRabbit(payload);
 
-      // Update the form with the server's saved record.
-      setRabbit(updatedRabbit);
-      setImage(null);
-      setSuccess(true);
+      router.push(`/rabbits/${createdRabbit.id}`);
+      router.refresh();
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while updating the rabbit.",
-      );
+      const apiError = err as Error & {
+        errors?: Record<string, string[]>;
+      };
+
+      if (apiError.errors) {
+        const mappedErrors: Record<string, string> = {};
+
+        Object.entries(apiError.errors).forEach(([key, messages]) => {
+          mappedErrors[key] = messages[0] ?? "Invalid value.";
+        });
+
+        setFieldErrors(mappedErrors);
+        setError("Please correct the highlighted fields.");
+      } else {
+        setError(
+          apiError.message || "Unable to register rabbit. Please try again.",
+        );
+      }
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-3 py-20 text-stone-500">
-        <LoaderCircle
-          size={20}
-          className="animate-spin"
-        />
-        Loading rabbit details...
-      </div>
-    );
-  }
-
-  if (!rabbit) {
-    return (
-      <div className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-white p-6">
-        <p className="whitespace-pre-line text-sm text-red-700">
-          {error || "Rabbit record not found."}
-        </p>
-
-        <Link
-          href="/rabbits"
-          className="mt-4 inline-flex text-sm font-semibold text-green-800 underline"
-        >
-          Return to rabbit registry
-        </Link>
-      </div>
-    );
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <Link
-        href={`/rabbits/${rabbit.id}`}
-        className="mb-5 inline-flex items-center gap-2 text-sm text-stone-500 hover:text-green-700"
-      >
-        <ArrowLeft size={16} />
-        Back to rabbit details
-      </Link>
+    <form onSubmit={handleSubmit} className="space-y-10">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/rabbits"
+          className="inline-flex items-center gap-2 text-sm font-medium text-stone-600 transition hover:text-green-700"
+        >
+          <ArrowLeft size={17} />
+          Back to rabbits
+        </Link>
 
-      <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
-        <div className="border-b border-stone-100 p-5 sm:p-7">
-          <p className="text-sm font-semibold text-green-800">
-            {rabbit.rabbit_code ?? `Rabbit #${rabbit.id}`}
-          </p>
+        <p className="text-xs text-stone-500">
+          Fields marked <span className="text-red-600">*</span> are required.
+        </p>
+      </div>
 
-          <h1 className="mt-1 text-2xl font-bold text-stone-900">
-            Edit rabbit
-          </h1>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {error}
+        </div>
+      )}
 
-          <p className="mt-2 text-sm text-stone-500">
-            Update this rabbit's information. Its identification
-            code will remain unchanged.
+      <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-stone-900">
+            Basic information
+          </h2>
+          <p className="mt-1 text-sm text-stone-500">
+            Enter the rabbit&apos;s identity and classification.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-8 p-5 sm:p-7">
-            {error && (
-              <div
-                role="alert"
-                className="whitespace-pre-line rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-              >
-                {error}
-              </div>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label className={labelClass} htmlFor="name">
+              Rabbit name
+            </label>
+            <input
+              id="name"
+              value={form.name}
+              onChange={(e) => updateField("name", e.target.value)}
+              className={inputClass}
+              placeholder="e.g. Snowy"
+              maxLength={100}
+            />
+            {fieldErrors.name && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p>
             )}
+          </div>
 
-            {success && (
-              <div
-                role="status"
-                className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-800"
-              >
-                <CheckCircle2 size={20} />
-                Rabbit details saved successfully.
-              </div>
+          <div>
+            <label className={labelClass} htmlFor="breed">
+              Breed <span className="text-red-600">*</span>
+            </label>
+            <input
+              id="breed"
+              required
+              value={form.breed}
+              onChange={(e) => updateField("breed", e.target.value)}
+              className={inputClass}
+              placeholder="e.g. New Zealand White"
+              maxLength={100}
+            />
+            {fieldErrors.breed && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.breed}</p>
             )}
+          </div>
 
-            {/* Basic information */}
-            <section>
-              <h2 className="font-bold text-stone-900">
-                Basic information
-              </h2>
+          <div>
+            <label className={labelClass} htmlFor="sex">
+              Sex <span className="text-red-600">*</span>
+            </label>
+            <select
+              id="sex"
+              required
+              value={form.sex}
+              onChange={(e) =>
+                updateField("sex", e.target.value as RabbitSex)
+              }
+              className={inputClass}
+            >
+              {sexes.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="edit-name"
-                    className={labelClass}
-                  >
-                    Rabbit name
-                  </label>
-
-                  <input
-                    id="edit-name"
-                    value={name}
-                    maxLength={100}
-                    onChange={(e) => setName(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-breed"
-                    className={labelClass}
-                  >
-                    Breed *
-                  </label>
-
-                  <input
-                    id="edit-breed"
-                    required
-                    value={breed}
-                    maxLength={100}
-                    onChange={(e) => setBreed(e.target.value)}
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-sex"
-                    className={labelClass}
-                  >
-                    Sex
-                  </label>
-
-                  <select
-                    id="edit-sex"
-                    value={sex}
-                    onChange={(e) =>
-                      setSex(e.target.value as RabbitSex)
-                    }
-                    className={inputClass}
-                  >
-                    <option value="female">
-                      Female (Doe)
-                    </option>
-                    <option value="male">
-                      Male (Buck)
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-dob"
-                    className={labelClass}
-                  >
-                    Date of birth
-                  </label>
-
-                  <input
-                    id="edit-dob"
-                    type="date"
-                    value={dateOfBirth}
-                    onChange={(e) =>
-                      setDateOfBirth(e.target.value)
-                    }
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-weight"
-                    className={labelClass}
-                  >
-                    Current weight (kg)
-                  </label>
-
-                  <input
-                    id="edit-weight"
-                    type="number"
-                    min="0.001"
-                    max="99999.999"
-                    step="0.001"
-                    value={weightKg}
-                    onChange={(e) =>
-                      setWeightKg(e.target.value)
-                    }
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-category"
-                    className={labelClass}
-                  >
-                    Production category
-                  </label>
-
-                  <select
-                    id="edit-category"
-                    value={category}
-                    onChange={(e) =>
-                      setCategory(
-                        e.target.value as RabbitCategory,
-                      )
-                    }
-                    className={inputClass}
-                  >
-                    <option value="kit">Kit</option>
-                    <option value="growing">
-                      Growing rabbit
-                    </option>
-                    <option value="breeding">
-                      Breeding rabbit
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-status"
-                    className={labelClass}
-                  >
-                    Status
-                  </label>
-
-                  <select
-                    id="edit-status"
-                    value={status}
-                    onChange={(e) =>
-                      setStatus(
-                        e.target.value as RabbitStatus,
-                      )
-                    }
-                    className={inputClass}
-                  >
-                    <option value="active">Active</option>
-                    <option value="sold">Sold</option>
-                    <option value="deceased">Deceased</option>
-                    <option value="culled">Culled</option>
-                    <option value="transferred">
-                      Transferred
-                    </option>
-                  </select>
-                </div>
-              </div>
-            </section>
-
-            {/* Acquisition information */}
-            <section className="border-t border-stone-100 pt-7">
-              <h2 className="font-bold text-stone-900">
-                Acquisition information
-              </h2>
-
-              <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="edit-source"
-                    className={labelClass}
-                  >
-                    Acquisition source
-                  </label>
-
-                  <select
-                    id="edit-source"
-                    value={acquisitionSource}
-                    onChange={(e) =>
-                      setAcquisitionSource(
-                        e.target.value as AcquisitionSource,
-                      )
-                    }
-                    className={inputClass}
-                  >
-                    <option value="born_on_farm">
-                      Born on farm
-                    </option>
-                    <option value="purchased">
-                      Purchased
-                    </option>
-                    <option value="transferred">
-                      Transferred
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-acquired"
-                    className={labelClass}
-                  >
-                    Acquisition date
-                  </label>
-
-                  <input
-                    id="edit-acquired"
-                    type="date"
-                    value={acquiredAt}
-                    onChange={(e) =>
-                      setAcquiredAt(e.target.value)
-                    }
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-cost"
-                    className={labelClass}
-                  >
-                    Acquisition cost (KSh)
-                  </label>
-
-                  <input
-                    id="edit-cost"
-                    type="number"
-                    min="0"
-                    max="9999999999.99"
-                    step="0.01"
-                    value={acquisitionCost}
-                    onChange={(e) =>
-                      setAcquisitionCost(e.target.value)
-                    }
-                    className={inputClass}
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="edit-exit-date"
-                    className={labelClass}
-                  >
-                    Exit date (if applicable)
-                  </label>
-
-                  <input
-                    id="edit-exit-date"
-                    type="date"
-                    value={exitDate}
-                    onChange={(e) =>
-                      setExitDate(e.target.value)
-                    }
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-            </section>
-
-            {/* Rabbit photograph */}
-            <section className="border-t border-stone-100 pt-7">
-              <h2 className="font-bold text-stone-900">
-                Rabbit photograph
-              </h2>
-
-              <p className="mt-1 text-sm text-stone-500">
-                Choose a new photo to replace the current one.
-                Leave it unchanged to keep the existing photo.
+          <div>
+            <label className={labelClass} htmlFor="date_of_birth">
+              Date of birth
+            </label>
+            <input
+              id="date_of_birth"
+              type="date"
+              value={form.date_of_birth}
+              onChange={(e) =>
+                updateField("date_of_birth", e.target.value)
+              }
+              className={inputClass}
+            />
+            {fieldErrors.date_of_birth && (
+              <p className="mt-1 text-xs text-red-600">
+                {fieldErrors.date_of_birth}
               </p>
+            )}
+          </div>
 
-              <div className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-start">
-                <div className="flex h-48 w-48 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-stone-200 bg-stone-50">
-                  {displayedImage ? (
-                    <img
-                      key={displayedImage}
-                      src={displayedImage}
-                      alt={`Photograph of ${
-                        rabbit.name || "rabbit"
-                      }`}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span className="px-4 text-center text-sm text-stone-400">
-                      No photograph available
-                    </span>
-                  )}
-                </div>
+          <div>
+            <label className={labelClass} htmlFor="weight_kg">
+              Weight (kg)
+            </label>
+            <input
+              id="weight_kg"
+              type="number"
+              min="0"
+              step="0.001"
+              value={form.weight_kg}
+              onChange={(e) => updateField("weight_kg", e.target.value)}
+              className={inputClass}
+              placeholder="e.g. 2.500"
+            />
+            {fieldErrors.weight_kg && (
+              <p className="mt-1 text-xs text-red-600">
+                {fieldErrors.weight_kg}
+              </p>
+            )}
+          </div>
 
-                <div className="flex-1">
-                  <label
-                    htmlFor="edit-image"
-                    className={labelClass}
-                  >
-                    Replace photograph
-                  </label>
+          <div>
+            <label className={labelClass} htmlFor="category">
+              Category <span className="text-red-600">*</span>
+            </label>
+            <select
+              id="category"
+              required
+              value={form.category}
+              onChange={(e) =>
+                updateField("category", e.target.value as RabbitCategory)
+              }
+              className={inputClass}
+            >
+              {categories.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-                  <input
-                    id="edit-image"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className={inputClass}
-                    onChange={(e) =>
-                      handleImageChange(
-                        e.target.files?.[0] ?? null,
-                      )
-                    }
-                  />
+          <div>
+            <label className={labelClass} htmlFor="status">
+              Status
+            </label>
+            <select
+              id="status"
+              value={form.status}
+              onChange={(e) =>
+                updateField("status", e.target.value as RabbitStatus)
+              }
+              className={inputClass}
+            >
+              {statuses.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </section>
 
-                  <p className="mt-2 text-xs text-stone-500">
-                    JPG, PNG, or WebP. Maximum 5 MB.
-                  </p>
+      <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-stone-900">
+            Acquisition information
+          </h2>
+          <p className="mt-1 text-sm text-stone-500">
+            Record how and when the rabbit joined your farm.
+          </p>
+        </div>
 
-                  {image && (
-                    <button
-                      type="button"
-                      onClick={cancelImageReplacement}
-                      className="mt-3 text-sm font-semibold text-red-600 hover:text-red-800"
-                    >
-                      Cancel photo replacement
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label className={labelClass} htmlFor="acquisition_source">
+              Acquisition source <span className="text-red-600">*</span>
+            </label>
+            <select
+              id="acquisition_source"
+              required
+              value={form.acquisition_source}
+              onChange={(e) =>
+                updateField(
+                  "acquisition_source",
+                  e.target.value as AcquisitionSource,
+                )
+              }
+              className={inputClass}
+            >
+              {acquisitionSources.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {/* Additional notes */}
-            <section className="border-t border-stone-100 pt-7">
-              <label
-                htmlFor="edit-notes"
-                className={labelClass}
+          <div>
+            <label className={labelClass} htmlFor="acquired_at">
+              Acquisition date
+            </label>
+            <input
+              id="acquired_at"
+              type="date"
+              value={form.acquired_at}
+              onChange={(e) => updateField("acquired_at", e.target.value)}
+              className={inputClass}
+            />
+            {fieldErrors.acquired_at && (
+              <p className="mt-1 text-xs text-red-600">
+                {fieldErrors.acquired_at}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className={labelClass} htmlFor="acquisition_cost">
+              Acquisition cost
+            </label>
+            <input
+              id="acquisition_cost"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.acquisition_cost}
+              onChange={(e) =>
+                updateField("acquisition_cost", e.target.value)
+              }
+              className={inputClass}
+              placeholder="e.g. 1500"
+            />
+            {fieldErrors.acquisition_cost && (
+              <p className="mt-1 text-xs text-red-600">
+                {fieldErrors.acquisition_cost}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className={labelClass} htmlFor="exit_date">
+              Exit date (if applicable)
+            </label>
+            <input
+              id="exit_date"
+              type="date"
+              value={form.exit_date}
+              onChange={(e) => updateField("exit_date", e.target.value)}
+              className={inputClass}
+            />
+            {fieldErrors.exit_date && (
+              <p className="mt-1 text-xs text-red-600">
+                {fieldErrors.exit_date}
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-stone-900">
+            Rabbit photograph
+          </h2>
+          <p className="mt-1 text-sm text-stone-500">
+            Upload a clear image to identify this rabbit. Maximum size: 5 MB.
+          </p>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          id="image"
+          type="file"
+          accept="image/*"
+          onChange={handleImageChange}
+          className="hidden"
+        />
+
+        {imagePreview ? (
+          <div className="flex flex-wrap items-start gap-4">
+            <img
+              src={imagePreview}
+              alt="Selected rabbit preview"
+              className="h-40 w-40 rounded-xl border border-stone-200 object-cover"
+            />
+            <div className="space-y-3">
+              <p className="max-w-sm break-all text-sm text-stone-600">
+                {image?.name}
+              </p>
+              <button
+                type="button"
+                onClick={removeImage}
+                className="inline-flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
               >
-                Additional notes
-              </label>
-
-              <textarea
-                id="edit-notes"
-                rows={4}
-                maxLength={5000}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className={`${inputClass} resize-y`}
-              />
-            </section>
+                <X size={16} />
+                Remove photo
+              </button>
+            </div>
           </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 px-5 py-10 text-center transition hover:border-green-500 hover:bg-green-50/50"
+          >
+            <ImagePlus size={30} className="text-green-700" />
+            <span className="mt-3 text-sm font-semibold text-stone-800">
+              Choose a rabbit photograph
+            </span>
+            <span className="mt-1 text-xs text-stone-500">
+              JPG, PNG, WEBP, or another supported image format
+            </span>
+          </button>
+        )}
+        {fieldErrors.image && (
+          <p className="mt-2 text-xs text-red-600">{fieldErrors.image}</p>
+        )}
+      </section>
 
-          {/* Form actions */}
-          <div className="flex flex-col-reverse gap-3 border-t border-stone-100 bg-stone-50/70 p-5 sm:flex-row sm:justify-end sm:px-7">
-            <Link
-              href={`/rabbits/${rabbit.id}`}
-              className="inline-flex items-center justify-center rounded-xl border border-stone-200 bg-white px-5 py-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-            >
-              Cancel
-            </Link>
+      <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-stone-900">
+            Additional notes
+          </h2>
+          <p className="mt-1 text-sm text-stone-500">
+            Add identifying details or other observations.
+          </p>
+        </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-700 px-5 py-3 text-sm font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? (
-                <LoaderCircle
-                  size={17}
-                  className="animate-spin"
-                />
-              ) : (
-                <Save size={17} />
-              )}
+        <label className={labelClass} htmlFor="notes">
+          Notes
+        </label>
+        <textarea
+          id="notes"
+          rows={4}
+          value={form.notes}
+          onChange={(e) => updateField("notes", e.target.value)}
+          className={inputClass}
+          placeholder="Enter any additional information..."
+        />
+        {fieldErrors.notes && (
+          <p className="mt-1 text-xs text-red-600">{fieldErrors.notes}</p>
+        )}
+      </section>
 
-              {submitting
-                ? "Saving changes..."
-                : "Save changes"}
-            </button>
-          </div>
-        </form>
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Link
+          href="/rabbits"
+          className="inline-flex items-center justify-center rounded-xl border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-100"
+        >
+          Cancel
+        </Link>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? (
+            <>
+              <LoaderCircle size={18} className="animate-spin" />
+              Registering rabbit...
+            </>
+          ) : (
+            <>
+              <Save size={18} />
+              Register rabbit
+            </>
+          )}
+        </button>
       </div>
-    </div>
+    </form>
   );
 }
