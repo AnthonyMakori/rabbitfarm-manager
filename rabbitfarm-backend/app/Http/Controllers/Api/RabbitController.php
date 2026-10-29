@@ -13,11 +13,7 @@ use App\Models\Kindling;
 
 class RabbitController extends Controller
 {
-    /**
-     * List rabbits, with optional search and filtering.
-     *
-     * GET /api/rabbits
-     */
+    
     public function index(Request $request): JsonResponse
     {
         $query = Rabbit::query();
@@ -165,11 +161,6 @@ class RabbitController extends Controller
         ], 201);
     }
 
-    /**
-     * Display one rabbit.
-     *
-     * GET /api/rabbits/{rabbit}
-     */
     public function show(Rabbit $rabbit): JsonResponse
     {
         return response()->json([
