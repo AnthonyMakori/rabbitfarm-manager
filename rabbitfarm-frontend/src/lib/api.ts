@@ -236,13 +236,51 @@ export async function getRabbit(id: number): Promise<Rabbit> {
   return result.data;
 }
 
-// Convert Laravel's photo URL into an absolute URL for the browser.
+
 export function getRabbitImageUrl(rabbit: Rabbit): string | null {
-  if (!rabbit.image_url) {
+  const imagePath = rabbit.image_path?.trim();
+
+  if (imagePath) {
+    if (/^https?:\/\//i.test(imagePath)) {
+      return imagePath;
+    }
+
+    const normalizedPath = imagePath
+      .replace(/^\/+/, "")
+      .replace(/^storage\//i, "");
+
+    return new URL(
+      `/storage/${normalizedPath}`,
+      API_ORIGIN,
+    ).toString();
+  }
+
+  const imageUrl = rabbit.image_url?.trim();
+
+  if (!imageUrl) {
     return null;
   }
 
-  return new URL(rabbit.image_url, API_ORIGIN).toString();
+  try {
+    const url = new URL(imageUrl, API_ORIGIN);
+    const apiUrl = new URL(API_ORIGIN);
+
+    const localHosts = ["localhost", "127.0.0.1"];
+
+    if (
+      localHosts.includes(url.hostname) &&
+      localHosts.includes(apiUrl.hostname)
+    ) {
+      return new URL(
+        `${url.pathname}${url.search}${url.hash}`,
+        API_ORIGIN,
+      ).toString();
+    }
+
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 // Register a rabbit, optionally including its photograph.

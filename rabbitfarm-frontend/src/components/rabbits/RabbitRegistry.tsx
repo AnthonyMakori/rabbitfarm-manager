@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+
 import {
   Plus,
   Search,
@@ -89,14 +90,24 @@ export default function RabbitRegistry() {
             {total} rabbits
           </p>
         </div>
+  
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <Link
+            href="/rabbits/gallery"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-blue-400 px-4 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+          >
+            <RabbitIcon size={17} />
+            View rabbit gallery
+          </Link>
 
-        <Link
-          href="/rabbits/new"
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-green-800"
-        >
-          <Plus size={18} />
-          Register rabbit
-        </Link>
+          <Link
+            href="/rabbits/new"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-green-800"
+          >
+            <Plus size={18} />
+            Register rabbit
+          </Link>
+        </div>
       </section>
 
       {/* Search */}

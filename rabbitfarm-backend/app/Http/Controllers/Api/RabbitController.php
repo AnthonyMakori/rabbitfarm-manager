@@ -177,105 +177,141 @@ class RabbitController extends Controller
         ]);
     }
 
-    /**
-     * Update a rabbit's details.
-     *
-     * PUT /api/rabbits/{rabbit}
-     */
-    public function update(Request $request, Rabbit $rabbit): JsonResponse
-    {
-        $validated = $request->validate([
-            'name' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'breed' => ['sometimes', 'required', 'string', 'max:100'],
+public function update(Request $request, Rabbit $rabbit): JsonResponse
+{
+    $validated = $request->validate([
+        'name' => ['sometimes', 'nullable', 'string', 'max:100'],
+        'breed' => ['sometimes', 'required', 'string', 'max:100'],
 
-            'sex' => [
+        'sex' => [
             'sometimes',
             'required',
             Rule::in(['male', 'female', 'unknown']),
         ],
 
-            'date_of_birth' => [
-                'sometimes',
-                'nullable',
-                'date',
-                'before_or_equal:today',
-            ],
+        'date_of_birth' => [
+            'sometimes',
+            'nullable',
+            'date',
+            'before_or_equal:today',
+        ],
 
-            'weight_kg' => [
-                'sometimes',
-                'nullable',
-                'numeric',
-                'gt:0',
-                'max:99999.999',
-            ],
+        'weight_kg' => [
+            'sometimes',
+            'nullable',
+            'numeric',
+            'gt:0',
+            'max:99999.999',
+        ],
 
-            'category' => [
-                'sometimes',
-                'required',
-                Rule::in(['breeding', 'growing', 'kit']),
-            ],
+        'category' => [
+            'sometimes',
+            'required',
+            Rule::in(['breeding', 'growing', 'kit']),
+        ],
 
-            'status' => [
-                'sometimes',
-                'required',
-                Rule::in([
-                    'active',
-                    'sold',
-                    'deceased',
-                    'culled',
-                    'transferred',
-                ]),
-            ],
+        'status' => [
+            'sometimes',
+            'required',
+            Rule::in([
+                'active',
+                'sold',
+                'deceased',
+                'culled',
+                'transferred',
+            ]),
+        ],
 
-            'acquisition_source' => [
-                'sometimes',
-                'required',
-                Rule::in([
-                    'born_on_farm',
-                    'purchased',
-                    'transferred',
-                ]),
-            ],
+        'acquisition_source' => [
+            'sometimes',
+            'required',
+            Rule::in([
+                'born_on_farm',
+                'purchased',
+                'transferred',
+            ]),
+        ],
 
-            'acquisition_cost' => [
-                'sometimes',
-                'nullable',
-                'numeric',
-                'min:0',
-                'max:9999999999.99',
-            ],
+        'acquisition_cost' => [
+            'sometimes',
+            'nullable',
+            'numeric',
+            'min:0',
+            'max:9999999999.99',
+        ],
 
-            'acquired_at' => [
-                'sometimes',
-                'nullable',
-                'date',
-                'before_or_equal:today',
-            ],
+        'acquired_at' => [
+            'sometimes',
+            'nullable',
+            'date',
+            'before_or_equal:today',
+        ],
 
-            'exit_date' => [
-                'sometimes',
-                'nullable',
-                'date',
-            ],
+        'exit_date' => [
+            'sometimes',
+            'nullable',
+            'date',
+        ],
 
-            'notes' => ['sometimes', 'nullable', 'string', 'max:5000'],
-        ]);
+        'notes' => [
+            'sometimes',
+            'nullable',
+            'string',
+            'max:5000',
+        ],
 
-        // Never allow updates to replace the generated identification code.
-        unset($validated['rabbit_code']);
+        // NEW: Validate an optional replacement image.
+        'image' => [
+            'sometimes',
+            'nullable',
+            'image',
+            'mimes:jpg,jpeg,png,webp',
+            'max:5120',
+        ],
+    ]);
 
+    // Never allow updates to replace the generated identification code.
+    unset($validated['rabbit_code']);
+
+    // Remove the uploaded file from the ordinary model attributes.
+    unset($validated['image']);
+
+    // NEW: Store a replacement image on Laravel's public disk.
+    if ($request->hasFile('image')) {
+        $newImagePath = $request
+            ->file('image')
+            ->store('rabbits', 'public');
+
+        // Keep the existing image until the new image has been stored.
+        $oldImagePath = $rabbit->image_path;
+
+        $validated['image_path'] = $newImagePath;
+
+        // Update the rabbit record, including its new image path.
         $rabbit->update($validated);
 
-        // If this is a kit linked to a litter, keep the litter totals in sync.
-        if ($rabbit->kindling_id !== null) {
-            $this->refreshKindlingCounts((int) $rabbit->kindling_id);
+        // Delete the previous image only after the database update succeeds.
+        if (
+            $oldImagePath &&
+            $oldImagePath !== $newImagePath
+        ) {
+            Storage::disk('public')->delete($oldImagePath);
         }
-        return response()->json([
-            'message' => 'Rabbit updated successfully.',
-            'data' => $rabbit->fresh(),
-        ]);
+    } else {
+        // No new image was uploaded, so preserve the existing image.
+        $rabbit->update($validated);
     }
 
+    // If this is a kit linked to a litter, keep the litter totals in sync.
+    if ($rabbit->kindling_id !== null) {
+        $this->refreshKindlingCounts((int) $rabbit->kindling_id);
+    }
+
+    return response()->json([
+        'message' => 'Rabbit updated successfully.',
+        'data' => $rabbit->fresh(),
+    ]);
+}
    
 
 public function destroy(Rabbit $rabbit): JsonResponse

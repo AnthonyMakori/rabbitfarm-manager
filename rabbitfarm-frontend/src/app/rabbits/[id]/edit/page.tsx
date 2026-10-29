@@ -7,12 +7,7 @@ import AppSidebar from "@/components/layout/AppSidebar";
 import AppHeader from "@/components/layout/AppHeader";
 import RabbitEditForm from "@/components/rabbits/RabbitEditForm";
 
-/**
- * Contains the edit page UI.
- *
- * This component uses useParams(), so it must be rendered
- * inside the Suspense boundary provided by EditRabbitPage.
- */
+
 function EditRabbitContent() {
   const params = useParams<{ id: string }>();
   const rabbitId = Number(params.id);
